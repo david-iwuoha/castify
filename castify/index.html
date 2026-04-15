@@ -2,31 +2,64 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Castify Phase 1 Test</title>
-</head>
-<body style="background: #121212; color: white; padding: 50px; font-family: sans-serif;">
+    <title>Castify</title>
 
-    <h1>Castify Phase 1: Brain Test</h1>
-    <p>Upload a PDF to see if the Gemini Brain can turn it into a Nigerian Script.</p>
+    <style>
+        body {
+            background: #121212;
+            color: white;
+            font-family: sans-serif;
+            padding: 40px;
+        }
+
+        .rail {
+            display: flex;
+            gap: 15px;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .netflix-card {
+            min-width: 280px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Castify AI Studio</h1>
+    <p>Upload PDF → Generate Episodes → Produce Audio</p>
 
     <input type="file" id="pdfFile" accept=".pdf">
     <button onclick="testBrain()">Generate Script</button>
 
-    <div id="status" style="margin-top: 20px; color: orange;"></div>
-    
-    <h3>Output JSON:</h3>
-    <pre id="output" style="background: #000; padding: 20px; border-radius: 10px; overflow-x: auto;"></pre>
+    <div id="status" style="margin-top:20px;color:orange;"></div>
+
+    <h3>Output JSON</h3>
+    <pre id="output" style="background:#000;padding:15px;border-radius:8px;overflow:auto;"></pre>
+
+    <h2>Episodes</h2>
+    <div id="episode-rail" class="rail"></div>
 
     <script>
+        let currentSeries = null;
+
+        // -----------------------
+        // UPLOAD + GENERATE
+        // -----------------------
         async function testBrain() {
             const fileInput = document.getElementById('pdfFile');
             const output = document.getElementById('output');
             const status = document.getElementById('status');
 
-            if (!fileInput.files[0]) return alert("Please select a PDF first!");
+            if (!fileInput.files[0]) {
+                alert("Please select a PDF first!");
+                return;
+            }
 
-            status.innerText = "Processing PDF and calling Gemini... (wait for it)";
+            status.innerText = "Processing PDF... AI is thinking 🤖";
             output.innerText = "";
+            document.getElementById('episode-rail').innerHTML = "";
 
             const formData = new FormData();
             formData.append('pdf', fileInput.files[0]);
@@ -36,14 +69,118 @@
                     method: 'POST',
                     body: formData
                 });
-                
+
                 const data = await response.json();
+
+                currentSeries = data;
+
                 output.innerText = JSON.stringify(data, null, 2);
-                status.innerText = "Success! Brain is working.";
+
+                status.innerText = "Series generated successfully 🎬";
+
+                renderEpisodes(data);
+
             } catch (err) {
                 status.innerText = "Error: " + err.message;
             }
         }
+
+        // -----------------------
+        // RENDER EPISODES (YOUR ADDITION MERGED)
+        // -----------------------
+        function renderEpisodes(data) {
+            const rail = document.getElementById('episode-rail');
+            rail.innerHTML = '';
+
+            data.episodes.forEach((ep, index) => {
+
+                const card = document.createElement('div');
+                card.className = "netflix-card";
+
+                card.innerHTML = `
+                    <div style="
+                        background:#1f1f1f;
+                        border:1px solid #333;
+                        border-radius:10px;
+                        overflow:hidden;
+                        padding:15px;
+                    ">
+
+                        <div style="height:120px;background:#333;display:flex;align-items:center;justify-content:center;position:relative;">
+                            <span style="font-size:30px;font-weight:bold;">EP ${index + 1}</span>
+                            <div style="position:absolute;top:8px;left:8px;background:red;font-size:10px;padding:2px 6px;border-radius:4px;">
+                                READY
+                            </div>
+                        </div>
+
+                        <h4 style="color:red;font-size:12px;margin-top:10px;">Episode ${index + 1}</h4>
+                        <h3 style="margin:5px 0;">${ep.title}</h3>
+
+                        <p style="color:gray;font-size:12px;">
+                            "${ep.script.substring(0, 80)}..."
+                        </p>
+
+                        <button id="btn-${index}"
+                            onclick="startProduction(${index})"
+                            style="
+                                width:100%;
+                                padding:10px;
+                                margin-top:10px;
+                                border:none;
+                                border-radius:6px;
+                                cursor:pointer;
+                                font-weight:bold;
+                            ">
+                            Generate Episode
+                        </button>
+
+                    </div>
+                `;
+
+                rail.appendChild(card);
+            });
+        }
+
+        // -----------------------
+        // YARN GPT AUDIO GENERATION
+        // -----------------------
+        async function startProduction(index) {
+            const btn = document.getElementById(`btn-${index}`);
+            const ep = currentSeries.episodes[index];
+
+            btn.innerText = "🎤 Generating Voice...";
+            btn.disabled = true;
+
+            try {
+                const response = await fetch('/produce-audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        script: ep.script,
+                        episodeId: index + 1
+                    })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    btn.innerText = "▶ Play Audio";
+                    btn.disabled = false;
+
+                    btn.onclick = () => {
+                        const audio = new Audio(result.audioUrl);
+                        audio.play();
+                    };
+                } else {
+                    btn.innerText = "Failed";
+                }
+
+            } catch (err) {
+                btn.innerText = "Error";
+                console.error(err);
+            }
+        }
     </script>
+
 </body>
 </html>

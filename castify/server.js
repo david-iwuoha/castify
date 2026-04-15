@@ -5,20 +5,25 @@ const multer = require('multer');
 const pdfParse = require('pdf-parse');
 const cors = require('cors');
 const fs = require('fs');
+const axios = require('axios');
 const Groq = require('groq-sdk');
 
 const app = express();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
 const upload = multer({ dest: 'uploads/' });
 
 app.use(cors());
 app.use(express.json());
 
-// ✅ KEEP THIS (this is what makes your index.html work)
+// ✅ FRONTEND (DO NOT REMOVE)
 app.use(express.static('./'));
 
+// ✅ AUDIO FILES ACCESS
+app.use('/uploads', express.static('uploads'));
+
 // -------------------------------
-// 🔍 HEALTH CHECK (AI TEST)
+// 🔍 HEALTH CHECK (GROQ TEST)
 // -------------------------------
 app.get('/health', async (req, res) => {
     try {
@@ -31,12 +36,11 @@ app.get('/health', async (req, res) => {
         res.json({
             status: "ok",
             ai: test.choices[0].message.content,
-            key_loaded: !!process.env.GROQ_API_KEY
+            groq_key: !!process.env.GROQ_API_KEY,
+            yarn_key: !!process.env.YARN_GPT_API_KEY
         });
 
     } catch (error) {
-        console.error("Health Error:", error.message);
-
         res.status(500).json({
             status: "error",
             message: error.message
@@ -76,33 +80,24 @@ Text:
 ${text.substring(0, 4000)}
 `;
 
-    try {
-        const chatCompletion = await groq.chat.completions.create({
-            messages: [{ role: "user", content: prompt }],
-            model: "llama-3.1-8b-instant",
-            temperature: 0.2
-        });
+    const chatCompletion = await groq.chat.completions.create({
+        messages: [{ role: "user", content: prompt }],
+        model: "llama-3.1-8b-instant",
+        temperature: 0.2
+    });
 
-        const raw = chatCompletion.choices[0].message.content;
+    const raw = chatCompletion.choices[0].message.content;
 
-        console.log("\nRAW AI OUTPUT:\n", raw);
+    console.log("\nRAW AI OUTPUT:\n", raw);
 
-        // ✅ Safe JSON extraction
-        const jsonStart = raw.indexOf('{');
-        const jsonEnd = raw.lastIndexOf('}') + 1;
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}') + 1;
 
-        if (jsonStart === -1 || jsonEnd === -1) {
-            throw new Error("AI did not return valid JSON");
-        }
-
-        const cleanJson = raw.substring(jsonStart, jsonEnd);
-
-        return JSON.parse(cleanJson);
-
-    } catch (error) {
-        console.error("Groq Error:", error.message);
-        throw new Error("Groq failed to generate script.");
+    if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error("AI did not return valid JSON");
     }
+
+    return JSON.parse(raw.substring(jsonStart, jsonEnd));
 }
 
 // -------------------------------
@@ -116,25 +111,25 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
 
         console.log("Processing:", req.file.originalname);
 
-        const dataBuffer = fs.readFileSync(req.file.path);
+        const buffer = fs.readFileSync(req.file.path);
 
         const parseFunc =
             typeof pdfParse === 'function'
                 ? pdfParse
                 : pdfParse.default;
 
-        const pdfData = await parseFunc(dataBuffer);
+        const pdfData = await parseFunc(buffer);
 
         console.log("PDF parsed. Sending to Groq...");
 
-        const castifyScript = await generateScript(pdfData.text);
+        const result = await generateScript(pdfData.text);
 
         fs.unlinkSync(req.file.path);
 
-        res.json(castifyScript);
+        res.json(result);
 
     } catch (error) {
-        console.error("Backend Error:", error.message);
+        console.error("PDF Error:", error.message);
 
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
@@ -145,7 +140,68 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
 });
 
 // -------------------------------
+// 🔊 YARN GPT: VOICE GENERATION
+// -------------------------------
+async function generateVoice(text, episodeId) {
+    try {
+        console.log(`Generating voice for Episode ${episodeId}`);
+
+        const response = await axios.post(
+            'https://yarngpt.ai/api/v1/tts',
+            {
+                text: text,
+                voice: "Idera",
+                response_format: "mp3"
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.YARN_GPT_API_KEY}`
+                },
+                responseType: 'arraybuffer'
+            }
+        );
+
+        const fileName = `audio_ep_${episodeId}_${Date.now()}.mp3`;
+        const filePath = `./uploads/${fileName}`;
+
+        fs.writeFileSync(filePath, response.data);
+
+        return fileName;
+
+    } catch (error) {
+        console.error("Yarn GPT Error:", error.response?.data || error.message);
+        throw new Error("Yarn GPT failed");
+    }
+}
+
+// -------------------------------
+// 🎙 AUDIO ENDPOINT
+// -------------------------------
+app.post('/produce-audio', async (req, res) => {
+    try {
+        const { script, episodeId } = req.body;
+
+        if (!script) {
+            return res.status(400).json({ error: "Missing script" });
+        }
+
+        const audioFile = await generateVoice(script, episodeId || 1);
+
+        res.json({
+            success: true,
+            audioUrl: `/uploads/${audioFile}`
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            error: error.message
+        });
+    }
+});
+
+// -------------------------------
 const PORT = 3000;
+
 app.listen(PORT, () => {
     console.log(`Castify Backend Live: http://localhost:${PORT}`);
 });
