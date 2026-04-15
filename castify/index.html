@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Castify Phase 1 Test</title>
+</head>
+<body style="background: #121212; color: white; padding: 50px; font-family: sans-serif;">
+
+    <h1>Castify Phase 1: Brain Test</h1>
+    <p>Upload a PDF to see if the Gemini Brain can turn it into a Nigerian Script.</p>
+
+    <input type="file" id="pdfFile" accept=".pdf">
+    <button onclick="testBrain()">Generate Script</button>
+
+    <div id="status" style="margin-top: 20px; color: orange;"></div>
+    
+    <h3>Output JSON:</h3>
+    <pre id="output" style="background: #000; padding: 20px; border-radius: 10px; overflow-x: auto;"></pre>
+
+    <script>
+        async function testBrain() {
+            const fileInput = document.getElementById('pdfFile');
+            const output = document.getElementById('output');
+            const status = document.getElementById('status');
+
+            if (!fileInput.files[0]) return alert("Please select a PDF first!");
+
+            status.innerText = "Processing PDF and calling Gemini... (wait for it)";
+            output.innerText = "";
+
+            const formData = new FormData();
+            formData.append('pdf', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/process-pdf', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                output.innerText = JSON.stringify(data, null, 2);
+                status.innerText = "Success! Brain is working.";
+            } catch (err) {
+                status.innerText = "Error: " + err.message;
+            }
+        }
+    </script>
+</body>
+</html>
