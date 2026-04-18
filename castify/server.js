@@ -141,21 +141,37 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
 
 // -------------------------------
 // 🔊 YARN GPT: VOICE GENERATION
+// FIXED WITHOUT BREAKING OLD FLOW
 // -------------------------------
-async function generateVoice(text, episodeId) {
+async function generateVoice(text, episodeId, voice) {
     try {
+        const allowedVoices = [
+            "Idera",
+            "Emma",
+            "Zainab",
+            "Osagie",
+            "Wura",
+            "Jude",
+            "Chinenye"
+        ];
+
+        const selectedVoice = allowedVoices.includes(voice)
+            ? voice
+            : "Idera";
+
         console.log(`Generating voice for Episode ${episodeId}`);
 
         const response = await axios.post(
             'https://yarngpt.ai/api/v1/tts',
             {
                 text: text,
-                voice: "Idera",
+                voice: selectedVoice,
                 response_format: "mp3"
             },
             {
                 headers: {
-                    Authorization: `Bearer ${process.env.YARN_GPT_API_KEY}`
+                    Authorization: `Bearer ${process.env.YARN_GPT_API_KEY}`,
+                    'Content-Type': 'application/json'
                 },
                 responseType: 'arraybuffer'
             }
@@ -169,7 +185,13 @@ async function generateVoice(text, episodeId) {
         return fileName;
 
     } catch (error) {
-        console.error("Yarn GPT Error:", error.response?.data || error.message);
+        console.error(
+            "Yarn GPT Error:",
+            error.response?.data
+                ? error.response.data.toString()
+                : error.message
+        );
+
         throw new Error("Yarn GPT failed");
     }
 }
@@ -179,13 +201,17 @@ async function generateVoice(text, episodeId) {
 // -------------------------------
 app.post('/produce-audio', async (req, res) => {
     try {
-        const { script, episodeId } = req.body;
+        const { script, episodeId, voice } = req.body;
 
         if (!script) {
             return res.status(400).json({ error: "Missing script" });
         }
 
-        const audioFile = await generateVoice(script, episodeId || 1);
+        const audioFile = await generateVoice(
+            script,
+            episodeId || 1,
+            voice
+        );
 
         res.json({
             success: true,

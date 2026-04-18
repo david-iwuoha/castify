@@ -22,13 +22,23 @@
         .netflix-card {
             min-width: 280px;
         }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 6px;
+            border: none;
+            background: #2a2a2a;
+            color: white;
+        }
     </style>
 </head>
 
 <body>
 
     <h1>Castify AI Studio</h1>
-    <p>Upload PDF → Generate Episodes → Produce Audio</p>
+    <p>Upload PDF → Generate Episodes → Select Voice → Produce Audio</p>
 
     <input type="file" id="pdfFile" accept=".pdf">
     <button onclick="testBrain()">Generate Script</button>
@@ -43,6 +53,9 @@
 
     <script>
         let currentSeries = null;
+
+        // GLOBAL AUDIO STORAGE
+        window.audioInstances = {};
 
         // -----------------------
         // UPLOAD + GENERATE
@@ -86,7 +99,7 @@
         }
 
         // -----------------------
-        // RENDER EPISODES (YOUR ADDITION MERGED)
+        // RENDER EPISODES
         // -----------------------
         function renderEpisodes(data) {
             const rail = document.getElementById('episode-rail');
@@ -108,17 +121,39 @@
 
                         <div style="height:120px;background:#333;display:flex;align-items:center;justify-content:center;position:relative;">
                             <span style="font-size:30px;font-weight:bold;">EP ${index + 1}</span>
-                            <div style="position:absolute;top:8px;left:8px;background:red;font-size:10px;padding:2px 6px;border-radius:4px;">
+
+                            <div style="
+                                position:absolute;
+                                top:8px;
+                                left:8px;
+                                background:red;
+                                font-size:10px;
+                                padding:2px 6px;
+                                border-radius:4px;
+                            ">
                                 READY
                             </div>
                         </div>
 
                         <h4 style="color:red;font-size:12px;margin-top:10px;">Episode ${index + 1}</h4>
+
                         <h3 style="margin:5px 0;">${ep.title}</h3>
 
                         <p style="color:gray;font-size:12px;">
                             "${ep.script.substring(0, 80)}..."
                         </p>
+
+                        <!-- VOICE SELECTOR -->
+                        <select id="voice-${index}">
+                            <option value="">Select Voice</option>
+                            <option value="Idera">Idera</option>
+                            <option value="Emma">Emma</option>
+                            <option value="Zainab">Zainab</option>
+                            <option value="Osagie">Osagie</option>
+                            <option value="Wura">Wura</option>
+                            <option value="Jude">Jude</option>
+                            <option value="Chinenye">Chinenye</option>
+                        </select>
 
                         <button id="btn-${index}"
                             onclick="startProduction(${index})"
@@ -142,11 +177,18 @@
         }
 
         // -----------------------
-        // YARN GPT AUDIO GENERATION
+        // AUDIO GENERATION + PLAY/PAUSE
         // -----------------------
         async function startProduction(index) {
             const btn = document.getElementById(`btn-${index}`);
             const ep = currentSeries.episodes[index];
+            const voiceSelect = document.getElementById(`voice-${index}`);
+            const selectedVoice = voiceSelect.value;
+
+            if (!selectedVoice) {
+                alert("Please select a voice first.");
+                return;
+            }
 
             btn.innerText = "🎤 Generating Voice...";
             btn.disabled = true;
@@ -157,26 +199,57 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         script: ep.script,
-                        episodeId: index + 1
+                        episodeId: index + 1,
+                        voice: selectedVoice
                     })
                 });
 
                 const result = await response.json();
 
                 if (result.success) {
-                    btn.innerText = "▶ Play Audio";
+
                     btn.disabled = false;
 
+                    let audio = window.audioInstances[index];
+
+                    btn.innerText = "▶ Play Audio";
+
                     btn.onclick = () => {
-                        const audio = new Audio(result.audioUrl);
+
+                        // pause
+                        if (audio && !audio.paused) {
+                            audio.pause();
+                            btn.innerText = "▶ Play Audio";
+                            return;
+                        }
+
+                        // resume
+                        if (audio && audio.paused) {
+                            audio.play();
+                            btn.innerText = "⏸ Pause Audio";
+                            return;
+                        }
+
+                        // first play
+                        audio = new Audio(result.audioUrl);
+                        window.audioInstances[index] = audio;
+
                         audio.play();
+                        btn.innerText = "⏸ Pause Audio";
+
+                        audio.onended = () => {
+                            btn.innerText = "▶ Play Audio";
+                        };
                     };
+
                 } else {
                     btn.innerText = "Failed";
+                    btn.disabled = false;
                 }
 
             } catch (err) {
                 btn.innerText = "Error";
+                btn.disabled = false;
                 console.error(err);
             }
         }
