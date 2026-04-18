@@ -8,6 +8,15 @@ const fs = require('fs');
 const axios = require('axios');
 const Groq = require('groq-sdk');
 
+// ✅ NEW: Cloudinary
+const cloudinary = require('cloudinary').v2;
+
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
 const app = express();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -105,11 +114,7 @@ ${text.substring(0, 4000)}
 // -------------------------------
 app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).send("No file uploaded.");
-        }
-
-        console.log("Processing:", req.file.originalname);
+        if (!req.file) return res.status(400).send("No file uploaded.");
 
         const buffer = fs.readFileSync(req.file.path);
 
@@ -120,8 +125,6 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
 
         const pdfData = await parseFunc(buffer);
 
-        console.log("PDF parsed. Sending to Groq...");
-
         const result = await generateScript(pdfData.text);
 
         fs.unlinkSync(req.file.path);
@@ -129,42 +132,29 @@ app.post('/process-pdf', upload.single('pdf'), async (req, res) => {
         res.json(result);
 
     } catch (error) {
-        console.error("PDF Error:", error.message);
-
+        console.error(error.message);
         if (req.file && fs.existsSync(req.file.path)) {
             fs.unlinkSync(req.file.path);
         }
-
         res.status(500).json({ error: error.message });
     }
 });
 
 // -------------------------------
-// 🔊 YARN GPT: VOICE GENERATION
-// FIXED WITHOUT BREAKING OLD FLOW
+// 🔊 YARN GPT VOICE
 // -------------------------------
 async function generateVoice(text, episodeId, voice) {
     try {
-        const allowedVoices = [
-            "Idera",
-            "Emma",
-            "Zainab",
-            "Osagie",
-            "Wura",
-            "Jude",
-            "Chinenye"
-        ];
+        const allowedVoices = ["Idera","Emma","Zainab","Osagie","Wura","Jude","Chinenye"];
 
         const selectedVoice = allowedVoices.includes(voice)
             ? voice
             : "Idera";
 
-        console.log(`Generating voice for Episode ${episodeId}`);
-
         const response = await axios.post(
             'https://yarngpt.ai/api/v1/tts',
             {
-                text: text,
+                text,
                 voice: selectedVoice,
                 response_format: "mp3"
             },
@@ -182,46 +172,76 @@ async function generateVoice(text, episodeId, voice) {
 
         fs.writeFileSync(filePath, response.data);
 
-        return fileName;
+        return filePath;
 
     } catch (error) {
-        console.error(
-            "Yarn GPT Error:",
-            error.response?.data
-                ? error.response.data.toString()
-                : error.message
-        );
-
+        console.error(error.response?.data?.toString() || error.message);
         throw new Error("Yarn GPT failed");
     }
 }
 
 // -------------------------------
-// 🎙 AUDIO ENDPOINT
+// 🎙 AUDIO ENDPOINT (NOW RETURNS CLOUDINARY URL TOO)
 // -------------------------------
 app.post('/produce-audio', async (req, res) => {
     try {
         const { script, episodeId, voice } = req.body;
 
-        if (!script) {
-            return res.status(400).json({ error: "Missing script" });
+        const filePath = await generateVoice(script, episodeId, voice);
+
+        // Upload to Cloudinary
+        const uploadResult = await cloudinary.uploader.upload(filePath, {
+            resource_type: "video",
+            folder: "castify/audio"
+        });
+
+        fs.unlinkSync(filePath);
+
+        res.json({
+            success: true,
+            audioUrl: uploadResult.secure_url
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// -------------------------------
+// 🎬 NEW: D-ID VIDEO GENERATION
+// -------------------------------
+app.post('/generate-video', async (req, res) => {
+    try {
+        const { audioUrl, imageUrl } = req.body;
+
+        if (!audioUrl || !imageUrl) {
+            return res.status(400).json({
+                error: "Missing audioUrl or imageUrl"
+            });
         }
 
-        const audioFile = await generateVoice(
-            script,
-            episodeId || 1,
-            voice
+        const response = await axios.post(
+            'https://api.d-id.com/talks',
+            {
+                source_url: audioUrl,
+                image_url: imageUrl
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.DID_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
+            }
         );
 
         res.json({
             success: true,
-            audioUrl: `/uploads/${audioFile}`
+                id: response.data.id
         });
 
     } catch (error) {
-        res.status(500).json({
-            error: error.message
-        });
+        console.error(error.response?.data || error.message);
+        res.status(500).json({ error: error.message });
     }
 });
 

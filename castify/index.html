@@ -1,259 +1,356 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Castify</title>
+<meta charset="UTF-8">
+<title>Castify</title>
 
-    <style>
-        body {
-            background: #121212;
-            color: white;
-            font-family: sans-serif;
-            padding: 40px;
-        }
+<style>
+body {
+    background: #121212;
+    color: white;
+    font-family: sans-serif;
+    padding: 40px;
+}
 
-        .rail {
-            display: flex;
-            gap: 15px;
-            overflow-x: auto;
-            padding: 10px 0;
-        }
+.rail {
+    display: flex;
+    gap: 15px;
+    overflow-x: auto;
+    padding: 10px 0;
+}
 
-        .netflix-card {
-            min-width: 280px;
-        }
+.netflix-card {
+    min-width: 280px;
+}
 
-        select {
-            width: 100%;
-            padding: 10px;
-            margin-top: 10px;
-            border-radius: 6px;
-            border: none;
-            background: #2a2a2a;
-            color: white;
-        }
-    </style>
+/* ------------------ */
+/* PROGRESS RING */
+/* ------------------ */
+.progress-ring {
+    width: 46px;
+    height: 46px;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+}
+
+circle {
+    fill: none;
+    stroke-width: 4;
+    transform: rotate(-90deg);
+    transform-origin: center;
+}
+
+.bg {
+    stroke: #333;
+}
+
+.bar {
+    stroke: #00ff88;
+    stroke-dasharray: 126;
+    stroke-dashoffset: 126;
+    transition: 0.4s ease;
+}
+
+/* ------------------ */
+/* MODAL */
+/* ------------------ */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.8);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: #1f1f1f;
+    padding: 20px;
+    border-radius: 10px;
+    width: 300px;
+}
+
+select, button {
+    width: 100%;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 6px;
+    border: none;
+    background: #2a2a2a;
+    color: white;
+}
+
+.status {
+    font-size: 11px;
+    color: gray;
+    margin-top: 6px;
+}
+</style>
 </head>
 
 <body>
 
-    <h1>Castify AI Studio</h1>
-    <p>Upload PDF → Generate Episodes → Select Voice → Produce Audio</p>
+<h1>Castify AI Studio</h1>
+<p>Upload PDF → Generate Episodes → Full AI Pipeline</p>
 
-    <input type="file" id="pdfFile" accept=".pdf">
-    <button onclick="testBrain()">Generate Script</button>
+<input type="file" id="pdfFile">
+<button onclick="startPipeline()">Generate Script</button>
 
-    <div id="status" style="margin-top:20px;color:orange;"></div>
+<div id="status" style="margin-top:20px;color:orange;"></div>
 
-    <h3>Output JSON</h3>
-    <pre id="output" style="background:#000;padding:15px;border-radius:8px;overflow:auto;"></pre>
+<pre id="output"></pre>
 
-    <h2>Episodes</h2>
-    <div id="episode-rail" class="rail"></div>
+<div id="episode-rail" class="rail"></div>
 
-    <script>
-        let currentSeries = null;
+<!-- VOICE MODAL -->
+<div class="modal" id="voiceModal">
+  <div class="modal-content">
+    <h3>Select Voice</h3>
+    <select id="voiceSelect">
+        <option value="Idera">Idera</option>
+        <option value="Emma">Emma</option>
+        <option value="Zainab">Zainab</option>
+        <option value="Osagie">Osagie</option>
+        <option value="Wura">Wura</option>
+        <option value="Jude">Jude</option>
+        <option value="Chinenye">Chinenye</option>
+    </select>
+    <button onclick="confirmVoice()">Continue</button>
+  </div>
+</div>
 
-        // GLOBAL AUDIO STORAGE
-        window.audioInstances = {};
+<!-- AVATAR MODAL -->
+<div class="modal" id="avatarModal">
+  <div class="modal-content">
+    <h3>Select Avatar</h3>
+    <input type="text" id="avatarUrl" placeholder="Paste image URL">
+    <button onclick="confirmAvatar()">Generate Video</button>
+  </div>
+</div>
 
-        // -----------------------
-        // UPLOAD + GENERATE
-        // -----------------------
-        async function testBrain() {
-            const fileInput = document.getElementById('pdfFile');
-            const output = document.getElementById('output');
-            const status = document.getElementById('status');
+<script>
 
-            if (!fileInput.files[0]) {
-                alert("Please select a PDF first!");
-                return;
-            }
+let currentSeries;
+let currentEpisode;
+let pipelineState = {};
+let audioStore = {};
+let selectedVoice = "";
+let selectedAvatar = "";
 
-            status.innerText = "Processing PDF... AI is thinking 🤖";
-            output.innerText = "";
-            document.getElementById('episode-rail').innerHTML = "";
+/* -----------------------
+PIPELINE START
+----------------------- */
+async function startPipeline() {
+    const file = document.getElementById('pdfFile').files[0];
+    const status = document.getElementById('status');
 
-            const formData = new FormData();
-            formData.append('pdf', fileInput.files[0]);
+    if (!file) return alert("Select PDF");
 
-            try {
-                const response = await fetch('/process-pdf', {
-                    method: 'POST',
-                    body: formData
-                });
+    status.innerText = "Processing PDF...";
 
-                const data = await response.json();
+    const form = new FormData();
+    form.append('pdf', file);
 
-                currentSeries = data;
+    const res = await fetch('/process-pdf', {
+        method: 'POST',
+        body: form
+    });
 
-                output.innerText = JSON.stringify(data, null, 2);
+    const data = await res.json();
 
-                status.innerText = "Series generated successfully 🎬";
+    if (data.error) {
+        status.innerText = data.error;
+        return;
+    }
 
-                renderEpisodes(data);
+    currentSeries = data;
 
-            } catch (err) {
-                status.innerText = "Error: " + err.message;
-            }
-        }
+    document.getElementById('output').innerText =
+        JSON.stringify(data, null, 2);
 
-        // -----------------------
-        // RENDER EPISODES
-        // -----------------------
-        function renderEpisodes(data) {
-            const rail = document.getElementById('episode-rail');
-            rail.innerHTML = '';
+    renderEpisodes(data);
 
-            data.episodes.forEach((ep, index) => {
+    status.innerText = "Episodes ready";
+}
 
-                const card = document.createElement('div');
-                card.className = "netflix-card";
+/* -----------------------
+RENDER
+----------------------- */
+function renderEpisodes(data) {
+    const rail = document.getElementById('episode-rail');
+    rail.innerHTML = '';
 
-                card.innerHTML = `
-                    <div style="
-                        background:#1f1f1f;
-                        border:1px solid #333;
-                        border-radius:10px;
-                        overflow:hidden;
-                        padding:15px;
-                    ">
+    data.episodes.forEach((ep, i) => {
 
-                        <div style="height:120px;background:#333;display:flex;align-items:center;justify-content:center;position:relative;">
-                            <span style="font-size:30px;font-weight:bold;">EP ${index + 1}</span>
+        pipelineState[i] = 0;
 
-                            <div style="
-                                position:absolute;
-                                top:8px;
-                                left:8px;
-                                background:red;
-                                font-size:10px;
-                                padding:2px 6px;
-                                border-radius:4px;
-                            ">
-                                READY
-                            </div>
-                        </div>
+        const card = document.createElement('div');
+        card.className = "netflix-card";
 
-                        <h4 style="color:red;font-size:12px;margin-top:10px;">Episode ${index + 1}</h4>
+        card.innerHTML = `
+        <div style="background:#1f1f1f;border-radius:10px;padding:15px;position:relative;">
 
-                        <h3 style="margin:5px 0;">${ep.title}</h3>
+            <svg class="progress-ring">
+                <circle class="bg" cx="23" cy="23" r="20"></circle>
+                <circle class="bar" id="bar-${i}" cx="23" cy="23" r="20"></circle>
+            </svg>
 
-                        <p style="color:gray;font-size:12px;">
-                            "${ep.script.substring(0, 80)}..."
-                        </p>
+            <h4>EP ${i+1}</h4>
+            <h3>${ep.title}</h3>
 
-                        <!-- VOICE SELECTOR -->
-                        <select id="voice-${index}">
-                            <option value="">Select Voice</option>
-                            <option value="Idera">Idera</option>
-                            <option value="Emma">Emma</option>
-                            <option value="Zainab">Zainab</option>
-                            <option value="Osagie">Osagie</option>
-                            <option value="Wura">Wura</option>
-                            <option value="Jude">Jude</option>
-                            <option value="Chinenye">Chinenye</option>
-                        </select>
+            <div class="status" id="status-${i}">Idle</div>
 
-                        <button id="btn-${index}"
-                            onclick="startProduction(${index})"
-                            style="
-                                width:100%;
-                                padding:10px;
-                                margin-top:10px;
-                                border:none;
-                                border-radius:6px;
-                                cursor:pointer;
-                                font-weight:bold;
-                            ">
-                            Generate Episode
-                        </button>
+            <button onclick="runStage(${i})">Start</button>
+        </div>
+        `;
 
-                    </div>
-                `;
+        rail.appendChild(card);
+    });
+}
 
-                rail.appendChild(card);
-            });
-        }
+/* -----------------------
+PROGRESS UPDATE
+----------------------- */
+function updateProgress(i, val, text) {
+    const bar = document.getElementById(`bar-${i}`);
+    const status = document.getElementById(`status-${i}`);
 
-        // -----------------------
-        // AUDIO GENERATION + PLAY/PAUSE
-        // -----------------------
-        async function startProduction(index) {
-            const btn = document.getElementById(`btn-${index}`);
-            const ep = currentSeries.episodes[index];
-            const voiceSelect = document.getElementById(`voice-${index}`);
-            const selectedVoice = voiceSelect.value;
+    const offset = 126 - (val / 100) * 126;
 
-            if (!selectedVoice) {
-                alert("Please select a voice first.");
-                return;
-            }
+    bar.style.strokeDashoffset = offset;
+    status.innerText = text;
+}
 
-            btn.innerText = "🎤 Generating Voice...";
-            btn.disabled = true;
+/* -----------------------
+PIPELINE ENGINE
+----------------------- */
+async function runStage(i) {
+    currentEpisode = i;
 
-            try {
-                const response = await fetch('/produce-audio', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        script: ep.script,
-                        episodeId: index + 1,
-                        voice: selectedVoice
-                    })
-                });
+    updateProgress(i, 10, "Extracting text...");
 
-                const result = await response.json();
+    setTimeout(() => {
+        updateProgress(i, 30, "Generating script...");
 
-                if (result.success) {
+        setTimeout(() => {
+            showVoiceModal();
+        }, 800);
 
-                    btn.disabled = false;
+    }, 800);
+}
 
-                    let audio = window.audioInstances[index];
+/* -----------------------
+VOICE
+----------------------- */
+function showVoiceModal() {
+    document.getElementById('voiceModal').style.display = 'flex';
+}
 
-                    btn.innerText = "▶ Play Audio";
+function confirmVoice() {
+    selectedVoice = document.getElementById('voiceSelect').value;
 
-                    btn.onclick = () => {
+    document.getElementById('voiceModal').style.display = 'none';
 
-                        // pause
-                        if (audio && !audio.paused) {
-                            audio.pause();
-                            btn.innerText = "▶ Play Audio";
-                            return;
-                        }
+    updateProgress(currentEpisode, 50, "Generating audio...");
 
-                        // resume
-                        if (audio && audio.paused) {
-                            audio.play();
-                            btn.innerText = "⏸ Pause Audio";
-                            return;
-                        }
+    generateAudio();
+}
 
-                        // first play
-                        audio = new Audio(result.audioUrl);
-                        window.audioInstances[index] = audio;
+async function generateAudio() {
+    const ep = currentSeries.episodes[currentEpisode];
 
-                        audio.play();
-                        btn.innerText = "⏸ Pause Audio";
+    const res = await fetch('/produce-audio', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+            script: ep.script,
+            episodeId: currentEpisode + 1,
+            voice: selectedVoice
+        })
+    });
 
-                        audio.onended = () => {
-                            btn.innerText = "▶ Play Audio";
-                        };
-                    };
+    const data = await res.json();
 
-                } else {
-                    btn.innerText = "Failed";
-                    btn.disabled = false;
-                }
+    if (!data.success) {
+        updateProgress(currentEpisode, 50, "Audio failed");
+        return;
+    }
 
-            } catch (err) {
-                btn.innerText = "Error";
-                btn.disabled = false;
-                console.error(err);
-            }
-        }
-    </script>
+    updateProgress(currentEpisode, 70, "Upload complete");
+
+    audioStore[currentEpisode] = data.audioUrl;
+
+    showAvatarModal();
+}
+
+/* -----------------------
+AVATAR
+----------------------- */
+function showAvatarModal() {
+    document.getElementById('avatarModal').style.display = 'flex';
+}
+
+function confirmAvatar() {
+    selectedAvatar = document.getElementById('avatarUrl').value;
+
+    document.getElementById('avatarModal').style.display = 'none';
+
+    updateProgress(currentEpisode, 85, "Generating video...");
+
+    generateVideo();
+}
+
+/* -----------------------
+VIDEO (D-ID)
+----------------------- */
+async function generateVideo() {
+
+    const audioUrl = audioStore[currentEpisode];
+
+    const res = await fetch('/generate-video', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+            audioUrl,
+            imageUrl: selectedAvatar
+        })
+    });
+
+    const data = await res.json();
+
+    updateProgress(currentEpisode, 100, "Completed");
+
+    showVideo(data.id, data.videoUrl);
+}
+
+/* -----------------------
+SHOW VIDEO (FIXED)
+----------------------- */
+function showVideo(id, videoUrl) {
+    const rail = document.getElementById('episode-rail');
+
+    const div = document.createElement('div');
+
+    div.innerHTML = `
+        <div style="margin-top:20px;background:#1f1f1f;padding:15px;border-radius:10px;">
+            <h3>Video Ready</h3>
+            <p>ID: ${id || "processing..."}</p>
+
+            ${videoUrl ? `
+                <video width="300" controls src="${videoUrl}"></video>
+            ` : `
+                <p style="color:gray;">Video is processing, ID will be used to fetch later</p>
+            `}
+        </div>
+    `;
+
+    rail.appendChild(div);
+}
+
+</script>
 
 </body>
 </html>
